@@ -93,35 +93,10 @@ $ niv add Mic92/sops-nix
 }
 ```
   
-#### `nix-channel`
-
-  As root run:
-  
-```console
-$ nix-channel --add https://github.com/Mic92/sops-nix/archive/master.tar.gz sops-nix
-$ nix-channel --update
-```
-  
-  Then add the following to your `configuration.nix` in the `imports` list:
-  
-```nix
-{
-  imports = [ <sops-nix/modules/sops> ];
-}
-```
-
 #### `fetchTarball`
 
   Add the following to your `configuration.nix`:
 
-``` nix
-{
-  imports = [ "${builtins.fetchTarball "https://github.com/Mic92/sops-nix/archive/master.tar.gz"}/modules/sops" ];
-}
-```
-  
-or with pinning:
-  
 ```nix
 {
   imports = let
@@ -179,8 +154,6 @@ $ ssh-keygen -p -N "" -f /tmp/id_rsa
 $ nix-shell -p gnupg -p ssh-to-pgp --run "ssh-to-pgp -private-key -i /tmp/id_rsa | gpg --import --quiet"
 $ rm /tmp/id_rsa
 ```
-
-You can also use an existing SSH Ed25519 key as an `age` key; to do so, see the following.
 
 <details>
 <summary> How to find the public key of an `age` key </summary>
@@ -421,6 +394,11 @@ sops:
     version: 3.7.1
 ```
 
+If you add a new host to your `.sops.yaml` file, you will need to update the keys for all secrets that are used by the new host.  This can be done like so:
+```
+$ nix-shell -p sops --run "sops updatekeys secrets/example.yaml"
+```
+
 </details>
 
 <details>
@@ -486,7 +464,7 @@ Consider the following nixos configuration example:
 ```nix
 {
   # Permission modes are in octal representation (same as chmod),
-  # the digits represent: user|group|owner
+  # the digits represent: user|group|others
   # 7 - full (rwx)
   # 6 - read and write (rw-)
   # 5 - read and execute (r-x)
@@ -576,6 +554,12 @@ To work around this issue, it's possible to set `neededForUsers = true` in a sec
 This will cause the secret to be decrypted to `/run/secrets-for-users` instead of `/run/secrets` before NixOS creates users.
 As users are not created yet, it's not possible to set an owner for these secrets.
 
+The password must be stored as a hash for this to work, which can be created with the command `mkpasswd`
+```console
+$ echo "password" | mkpasswd -s
+$y$j9T$WFoiErKnEnMcGq0ruQK4K.$4nJAY3LBeBsZBTYSkdTOejKU6KlDmhnfUV3Ll1K/1b.
+```
+
 ```nix
 { config, ... }: {
   sops.secrets.my-password.neededForUsers = true;
@@ -586,6 +570,10 @@ As users are not created yet, it's not possible to set an owner for these secret
   };
 }
 ```
+
+**Note:** If you are using Impermanence, you must set `sops.age.keyFile` to a keyfile inside your persist directory or it will not exist at boot time. 
+For example: `/nix/persist/var/lib/sops-nix/key.txt`
+Similarly if ssh host keys are used instead, they also need to be placed inside the persisted storage.
 
 ## Different file formats
 
@@ -686,8 +674,7 @@ JSON/YAML files. Unlike the other two formats, for binary files, one file corres
 To encrypt an binary file use the following command:
 
 ``` console
-$ cp /etc/krb5/krb5.keytab > krb5.keytab
-$ sops -e -o krb5.keytab
+$ sops -e /etc/krb5/krb5.keytab > krb5.keytab
 # an example of what this might result in:
 $ head krb5.keytab
 {
@@ -720,16 +707,76 @@ This is how it can be included in your `configuration.nix`:
 }
 ```
 
+## Emit plain file for yaml and json formats
+
+By default, sops-nix extracts a single key from yaml and json files. If you
+need the plain file instead of extracting a specific key from the input document,
+you can set `key` to an empty string.
+
+For example, the input document `my-config.yaml` likes this:
+
+```yaml
+my-secret1: ENC[AES256_GCM,data:tkyQPQODC3g=,iv:yHliT2FJ74EtnLIeeQtGbOoqVZnF0q5HiXYMJxYx6HE=,tag:EW5LV4kG4lcENaN2HIFiow==,type:str]
+my-secret2: ENC[AES256_GCM,data:tkyQPQODC3g=,iv:yHliT2FJ74EtnLIeeQtGbOoqVZnF0q5HiXYMJxYx6HE=,tag:EW5LV4kG4lcENaN2HIFiow==,type:str]
+sops:
+    kms: []
+    gcp_kms: []
+    azure_kv: []
+    hc_vault: []
+...
+```
+
+This is how it can be included in your NixOS module:
+
+```nix
+{
+  sops.secrets.my-config = {
+    format = "yaml";
+    sopsFile = ./my-config.yaml;
+    key = "";
+  };
+}
+```
+
+Then, it will be mounted as `/run/secrets/my-config`:
+
+```yaml
+my-secret1: hello
+my-secret2: hello
+```
+
 ## Use with home manager
 
 sops-nix also provides a home-manager module.
 This module provides a subset of features provided by the system-wide sops-nix since features like the creation of the ramfs and changing the owner of the secrets are not available for non-root users.
 
 Instead of running as an activation script, sops-nix runs as a systemd user service called `sops-nix.service`.
-And instead of decrypting to `/run/secrets`, the secrets are decrypted to `$XDG_RUNTIME_DIR/secrets` that is located on a tmpfs or similar non-persistent filesystem.
+While the sops-nix _system_ module decrypts secrets to the system non-persistent `/run/secrets`, the _home-manager_ module places them in the users non-persistent `$XDG_RUNTIME_DIR/secrets.d`.
+Additionally secrets are symlinked to the users home at `$HOME/.config/sops-nix/secrets` which are referenced for the `.path` value in sops-nix.
+This requires that the home-manager option `home.homeDirectory` is set to determine the home-directory on evaluation.  It will have to be manually set if home-manager is configured as stand-alone or on non NixOS systems.
 
-Depending on whether you use home-manager system-wide or using a home.nix, you have to import it in a different way.
-This example show the `channel` approach from the example [Install: nix-channel](#nix-channel) for simplicity, but all other methods work as well. 
+Depending on whether you use home-manager system-wide or stand-alone using a home.nix, you have to import it in a different way.
+This example shows the `flake` approach from the recommended example [Install: Flakes (current recommendation)](#Flakes (current recommendation))
+
+```nix
+{
+  # NixOS system-wide home-manager configuration
+  home-manager.sharedModules = [
+    inputs.sops-nix.homeManagerModules.sops
+  ];
+}
+```
+
+```nix
+{
+  # Configuration via home.nix
+  imports = [
+    inputs.sops-nix.homeManagerModules.sops
+  ];
+}
+```
+
+This example show the `channel` approach from the example [Install: nix-channel](#nix-channel). All other methods work as well. 
 
 ```nix
 {
@@ -773,6 +820,31 @@ The secrets are decrypted in a systemd user service called `sops-nix`, so other 
 ```nix
 {
   systemd.user.services.mbsync.Unit.After = [ "sops-nix.service" ];
+}
+```
+
+### Qubes Split GPG support
+
+If you are using Qubes with the [Split GPG](https://www.qubes-os.org/doc/split-gpg),
+then you can configure sops to utilize the `qubes-gpg-client-wrapper` with the `sops.gnupg.qubes-split-gpg` options.
+The example above updated looks like this:
+```nix
+{
+  sops = {
+    gnupg.qubes-split-gpg = {
+      enable = true;
+      domain = "vault-gpg";
+    };
+    defaultSopsFile = ./secrets.yaml;
+    secrets.test = {
+      # sopsFile = ./secrets.yml.enc; # optionally define per-secret files
+
+      # %r gets replaced with a runtime directory, use %% to specify a '%'
+      # sign. Runtime dir is $XDG_RUNTIME_DIR on linux and $(getconf
+      # DARWIN_USER_TEMP_DIR) on darwin.
+      path = "%r/test.txt";
+    };
+  };
 }
 ```
 

@@ -83,7 +83,7 @@ func testGPG(t *testing.T) {
 	gpgEnv := append(os.Environ(), fmt.Sprintf("GNUPGHOME=%s", gpgHome))
 
 	ok(t, os.Mkdir(gpgHome, os.FileMode(0o700)))
-	cmd := exec.Command("gpg", "--import", path.Join(assets, "key.asc"))
+	cmd := exec.Command("gpg", "--import", path.Join(assets, "key.asc")) // nolint:gosec
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = gpgEnv
@@ -98,12 +98,14 @@ func testGPG(t *testing.T) {
 		}
 	}()
 
+	nobody := "nobody"
+	nogroup := "nogroup"
 	// should create a symlink
 	yamlSecret := secret{
 		Name:         "test",
 		Key:          "test_key",
-		Owner:        "nobody",
-		Group:        "nogroup",
+		Owner:        &nobody,
+		Group:        &nogroup,
 		SopsFile:     path.Join(assets, "secrets.yaml"),
 		Path:         path.Join(testdir.path, "test-target"),
 		Mode:         "0400",
@@ -112,12 +114,13 @@ func testGPG(t *testing.T) {
 	}
 
 	var jsonSecret, binarySecret, dotenvSecret, iniSecret secret
+	root := "root"
 	// should not create a symlink
 	jsonSecret = yamlSecret
 	jsonSecret.Name = "test2"
-	jsonSecret.Owner = "root"
+	jsonSecret.Owner = &root
 	jsonSecret.Format = "json"
-	jsonSecret.Group = "root"
+	jsonSecret.Group = &root
 	jsonSecret.SopsFile = path.Join(assets, "secrets.json")
 	jsonSecret.Path = path.Join(testdir.secretsPath, "test2")
 	jsonSecret.Mode = "0700"
@@ -130,16 +133,16 @@ func testGPG(t *testing.T) {
 
 	dotenvSecret = yamlSecret
 	dotenvSecret.Name = "test4"
-	dotenvSecret.Owner = "root"
-	dotenvSecret.Group = "root"
+	dotenvSecret.Owner = &root
+	dotenvSecret.Group = &root
 	dotenvSecret.Format = "dotenv"
 	dotenvSecret.SopsFile = path.Join(assets, "secrets.env")
 	dotenvSecret.Path = path.Join(testdir.secretsPath, "test4")
 
 	iniSecret = yamlSecret
 	iniSecret.Name = "test5"
-	iniSecret.Owner = "root"
-	iniSecret.Group = "root"
+	iniSecret.Owner = &root
+	iniSecret.Group = &root
 	iniSecret.Format = "ini"
 	iniSecret.SopsFile = path.Join(assets, "secrets.ini")
 	iniSecret.Path = path.Join(testdir.secretsPath, "test5")
@@ -214,11 +217,13 @@ func testSSHKey(t *testing.T) {
 	ok(t, err)
 	file.Close()
 
+	nobody := "nobody"
+	nogroup := "nogroup"
 	s := secret{
 		Name:         "test",
 		Key:          "test_key",
-		Owner:        "nobody",
-		Group:        "nogroup",
+		Owner:        &nobody,
+		Group:        &nogroup,
 		SopsFile:     path.Join(assets, "secrets.yaml"),
 		Path:         target,
 		Mode:         "0400",
@@ -247,11 +252,13 @@ func TestAge(t *testing.T) {
 	ok(t, err)
 	file.Close()
 
+	nobody := "nobody"
+	nogroup := "nogroup"
 	s := secret{
 		Name:         "test",
 		Key:          "test_key",
-		Owner:        "nobody",
-		Group:        "nogroup",
+		Owner:        &nobody,
+		Group:        &nogroup,
 		SopsFile:     path.Join(assets, "secrets.yaml"),
 		Path:         target,
 		Mode:         "0400",
@@ -280,11 +287,13 @@ func TestAgeWithSSH(t *testing.T) {
 	ok(t, err)
 	file.Close()
 
+	nobody := "nobody"
+	nogroup := "nogroup"
 	s := secret{
 		Name:         "test",
 		Key:          "test_key",
-		Owner:        "nobody",
-		Group:        "nogroup",
+		Owner:        &nobody,
+		Group:        &nogroup,
 		SopsFile:     path.Join(assets, "secrets.yaml"),
 		Path:         target,
 		Mode:         "0400",
@@ -296,7 +305,7 @@ func TestAgeWithSSH(t *testing.T) {
 		Secrets:           []secret{s},
 		SecretsMountPoint: testdir.secretsPath,
 		SymlinkPath:       testdir.symlinkPath,
-		AgeSshKeyPaths:    []string{path.Join(assets, "ssh-ed25519-key")},
+		AgeSSHKeyPaths:    []string{path.Join(assets, "ssh-ed25519-key")},
 	}
 
 	testInstallSecret(t, testdir, &m)
@@ -314,11 +323,13 @@ func TestValidateManifest(t *testing.T) {
 	testdir := newTestDir(t)
 	defer testdir.Remove()
 
+	nobody := "nobody"
+	nogroup := "nogroup"
 	s := secret{
 		Name:         "test",
 		Key:          "test_key",
-		Owner:        "nobody",
-		Group:        "nogroup",
+		Owner:        &nobody,
+		Group:        &nogroup,
 		SopsFile:     path.Join(assets, "secrets.yaml"),
 		Path:         path.Join(testdir.path, "test-target"),
 		Mode:         "0400",
@@ -346,7 +357,7 @@ func TestIsValidFormat(t *testing.T) {
 			t.Errorf("input %s must return %v but returned %v", input, mustBe, result)
 		}
 	}
-	for _, format := range []string{string(Yaml), string(Json), string(Binary), string(Dotenv)} {
+	for _, format := range []string{string(Yaml), string(JSON), string(Binary), string(Dotenv)} {
 		generateCase(format, true)
 		generateCase(strings.ToUpper(format), false)
 	}
